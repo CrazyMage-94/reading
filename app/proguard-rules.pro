@@ -1,0 +1,2 @@
+-keep class com.reading.app.data.source.** { *; }
+-keepclassmembers class * { @androidx.room.* <methods>; }
