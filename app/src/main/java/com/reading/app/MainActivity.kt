@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
@@ -28,6 +29,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             ReadingAppTheme {
                 val navController = rememberNavController()
+                val autoKw = intent?.getStringExtra("auto_search")
+                LaunchedEffect(autoKw) {
+                    if (!autoKw.isNullOrBlank()) navController.navigate("search/$autoKw")
+                }
                 NavHost(navController, startDestination = "bookshelf") {
                     composable("bookshelf") {
                         BookshelfScreen(
@@ -37,6 +42,13 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("search") {
                         SearchScreen(onBack = { navController.popBackStack() })
+                    }
+                    composable(
+                        "search/{keyword}",
+                        arguments = listOf(navArgument("keyword") { type = NavType.StringType })
+                    ) { backStack ->
+                        val kw = URLDecoder.decode(backStack.arguments?.getString("keyword") ?: "", "UTF-8")
+                        SearchScreen(onBack = { navController.popBackStack() }, autoKeyword = kw)
                     }
                     composable(
                         "reader/{bookUrl}",

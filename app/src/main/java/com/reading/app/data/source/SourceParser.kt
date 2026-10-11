@@ -1,9 +1,11 @@
 package com.reading.app.data.source
 
+import android.util.Log
 import com.reading.app.data.model.BookSource
 import com.reading.app.data.model.Chapter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
@@ -15,9 +17,9 @@ data class SearchBook(
     var bookUrl: String = "", var intro: String = ""
 )
 
-data class ParsedChapter(var title: String = "", var url: String = "")
-
 class SourceParser {
+    companion object { const val TAG = "SourceParser" }
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
@@ -29,51 +31,91 @@ class SourceParser {
         }
         .build()
 
-    suspend fun fetchHtml(url: String, charset: String = "UTF-8"): String = withContext(Dispatchers.IO) {
-        val req = Request.Builder().url(url).header("Referer", url).build()
-        val resp = client.newCall(req).execute()
-        try {
-            val body = resp.body?.bytes() ?: ByteArray(0)
-            String(body, charset(charset))
-        } finally {
-            resp.close()
+    suspend fun fetchHtml(url: String, charset: String = "UTF-8", postBody: Pair<String, String>? = null): String =
+        withContext(Dispatchers.IO) {
+            try {
+                val builder = Request.Builder().url(url).header("Referer", url)
+                if (postBody != null) {
+                    val form = FormBody.Builder().add(postBody.first, postBody.second).build()
+                    builder.post(form)
+                }
+                val resp = client.newCall(builder.build()).execute()
+                try {
+                    val bytes = resp.body?.bytes() ?: ByteArray(0)
+                    String(bytes, charset(charset))
+                } finally { resp.close() }
+            } catch (e: Exception) {
+                Log.w(TAG, "fetch failed: $url -> ${e.message}")
+                ""
+            }
         }
-    }
 
     suspend fun search(source: BookSource, keyword: String): List<SearchBook> = withContext(Dispatchers.IO) {
         try {
-            val url = source.searchUrl.replace("{{key}}", java.net.URLEncoder.encode(keyword, source.charset))
-            val html = fetchHtml(url, source.charset)
+            var url = source.searchUrl
+            var postBody: Pair<String, String>? = null
+            if (url.startsWith("POST,")) {
+                postBody = "searchkey" to keyword
+                url = url.removePrefix("POST,")
+            }
+            val encoded = java.net.URLEncoder.encode(keyword, source.charset)
+            url = url.replace("{{key}}", encoded).replace("{key}", encoded)
+            val html = fetchHtml(url, source.charset, postBody)
+            if (html.isBlank()) {
+                Log.w(TAG, "[${source.name}] search: empty html")
+                return@withContext emptyList()
+            }
             val doc = Jsoup.parse(html, url)
-            doc.select(source.ruleSearchBookList).mapNotNull { el ->
+            val results = doc.select(source.ruleSearchBookList).mapNotNull { el ->
                 val name = resolveText(el, source.ruleSearchName)
                 if (name.isBlank()) return@mapNotNull null
                 SearchBook(
                     name = name,
                     author = resolveText(el, source.ruleSearchAuthor),
-                    cover = resolveAttr(el, source.ruleSearchCover, el.baseUri()),
+                    cover = absolutize(resolveAttr(el, source.ruleSearchCover, el.baseUri()), el.baseUri()),
                     bookUrl = absolutize(resolveAttr(el, source.ruleSearchBookUrl, el.baseUri()), el.baseUri())
                 )
             }
-        } catch (e: Exception) { emptyList() }
+            Log.i(TAG, "[${source.name}] search '${keyword}' -> ${results.size} results")
+            results
+        } catch (e: Exception) {
+            Log.w(TAG, "[${source.name}] search error: ${e.message}")
+            emptyList()
+        }
     }
 
     suspend fun getBookInfo(source: BookSource, bookUrl: String): SearchBook = withContext(Dispatchers.IO) {
         val html = fetchHtml(bookUrl, source.charset)
         val doc = Jsoup.parse(html, bookUrl)
+        val cover = doc.selectFirst(source.ruleBookCover)?.attr(
+            source.ruleBookCover.substringAfterLast("@", "src")
+        ) ?: doc.selectFirst("meta[property=og:image]")?.attr("content") ?: ""
         SearchBook(
             name = doc.selectFirst("h1")?.text() ?: "",
             author = "",
-            cover = doc.selectFirst("meta[property=og:image]")?.attr("content") ?: "",
+            cover = absolutize(cover, bookUrl),
             bookUrl = bookUrl,
-            intro = doc.selectFirst(source.ruleBookIntro)?.text()?.take(500) ?: ""
+            intro = resolveText(doc, source.ruleBookIntro).take(500)
         )
     }
 
     suspend fun getChapters(source: BookSource, bookUrl: String): List<Chapter> = withContext(Dispatchers.IO) {
         val html = fetchHtml(bookUrl, source.charset)
-        val doc = Jsoup.parse(html, bookUrl)
-        val elements = doc.select(source.ruleChapterList)
+        if (html.isBlank()) return@withContext emptyList()
+        var doc = Jsoup.parse(html, bookUrl)
+        var elements = doc.select(source.ruleChapterList)
+        // 目录在独立页面（如 list.html）：自动跟随
+        if (elements.isEmpty()) {
+            val listLink = Regex("href=\"([^\"]*list\\.html)\"").find(html)?.groupValues?.get(1)
+            if (listLink != null) {
+                val listUrl = absolutize(listLink, bookUrl)
+                Log.i(TAG, "[${source.name}] chapters on separate page: $listUrl")
+                val listHtml = fetchHtml(listUrl, source.charset)
+                doc = Jsoup.parse(listHtml, listUrl)
+                elements = doc.select(source.ruleChapterList)
+            }
+        }
+        Log.i(TAG, "[${source.name}] chapters: ${elements.size} found")
         elements.mapIndexedNotNull { i, el ->
             val title = resolveText(el, source.ruleChapterName)
             val href = absolutize(resolveAttr(el, source.ruleChapterUrl, el.baseUri()), el.baseUri())
@@ -84,9 +126,12 @@ class SourceParser {
 
     suspend fun getContent(source: BookSource, chapterUrl: String): String = withContext(Dispatchers.IO) {
         val html = fetchHtml(chapterUrl, source.charset)
+        if (html.isBlank()) return@withContext ""
         val doc = Jsoup.parse(html, chapterUrl)
-        val contentEl = doc.selectFirst(source.ruleContent) ?: return@withContext ""
-        // Remove scripts, styles, ads
+        val contentEl = doc.selectFirst(source.ruleContent) ?: run {
+            Log.w(TAG, "[${source.name}] content selector miss: $chapterUrl")
+            return@withContext ""
+        }
         contentEl.select("script,style,ins,iframe,.txtnav,.adsbygoogle,[id*=ad],[class*=ad],[class*=banner]").remove()
         contentEl.wholeText()
             .replace(Regex("\\u00a0|&nbsp;"), " ")
@@ -126,6 +171,7 @@ class SourceParser {
 
     private fun absolutize(url: String, base: String): String {
         if (url.isBlank()) return ""
+        if (url.startsWith("//")) return "https:$url"
         return try { java.net.URL(java.net.URL(base), url).toString() } catch (e: Exception) { url }
     }
 

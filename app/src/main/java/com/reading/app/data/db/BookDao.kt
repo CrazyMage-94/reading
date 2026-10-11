@@ -46,4 +46,7 @@ interface SourceDao {
 
     @Query("UPDATE book_sources SET enabled = :enabled WHERE id = :id")
     suspend fun setEnabled(id: String, enabled: Boolean)
+
+    @Query("DELETE FROM book_sources WHERE id = :id")
+    suspend fun delete(id: String)
 }

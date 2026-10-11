@@ -16,9 +16,11 @@ class BookRepository(private val bookDao: BookDao, private val sourceDao: Source
 
     suspend fun initDefaultSources() {
         try {
-            if (sourceDao.getEnabledSourcesOnce().isEmpty()) {
-                sourceDao.upsertAll(com.reading.app.data.source.DefaultSources.all())
-            }
+            val defaults = com.reading.app.data.source.DefaultSources.all()
+            sourceDao.upsertAll(defaults)
+            // 删除已下线的旧源
+            val keepIds = defaults.map { it.id }.toSet()
+            sourceDao.getEnabledSourcesOnce().filter { it.id !in keepIds }.forEach { sourceDao.delete(it.id) }
         } catch (_: Exception) { }
     }
 

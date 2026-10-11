@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,7 +23,7 @@ import com.reading.app.data.source.SearchBook
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SearchScreen(onBack: () -> Unit) {
+fun SearchScreen(onBack: () -> Unit, autoKeyword: String = "") {
     val vm: SearchViewModel = viewModel()
     val query by vm.query.collectAsState()
     val results by vm.results.collectAsState()
@@ -31,6 +32,12 @@ fun SearchScreen(onBack: () -> Unit) {
     val addedUrls by vm.addedUrls.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    LaunchedEffect(autoKeyword) {
+        if (autoKeyword.isNotBlank()) {
+            vm.onQueryChange(autoKeyword)
+            vm.search()
+        }
+    }
     LaunchedEffect(message) {
         message?.let {
             snackbarHostState.showSnackbar(it)
@@ -97,7 +104,7 @@ fun SearchItem(item: SearchBook, added: Boolean, onClick: () -> Unit) {
         }
         IconButton(onClick = onClick, enabled = !added) {
             if (added) Icon(Icons.Default.Check, "已加入", tint = MaterialTheme.colorScheme.primary)
-            else Icon(Icons.Default.Search, "加入书架")
+            else Icon(Icons.Default.Add, "加入书架")
         }
     }
 }
