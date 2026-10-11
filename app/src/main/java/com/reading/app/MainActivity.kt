@@ -23,7 +23,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val app = application as App
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-            app.repository.initDefaultSources()
+            try { app.repository.initDefaultSources() } catch (_: Exception) { }
         }
         setContent {
             ReadingAppTheme {

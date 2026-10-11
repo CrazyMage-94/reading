@@ -15,7 +15,11 @@ class BookRepository(private val bookDao: BookDao, private val sourceDao: Source
     fun getAllBooks(): Flow<List<Book>> = bookDao.getAllBooks()
 
     suspend fun initDefaultSources() {
-        sourceDao.upsertAll(com.reading.app.data.source.DefaultSources.all())
+        try {
+            if (sourceDao.getEnabledSourcesOnce().isEmpty()) {
+                sourceDao.upsertAll(com.reading.app.data.source.DefaultSources.all())
+            }
+        } catch (_: Exception) { }
     }
 
     suspend fun getEnabledSources(): List<BookSource> = sourceDao.getEnabledSourcesOnce()
