@@ -36,7 +36,7 @@ private enum class ReaderTheme(val bg: Color, val text: Color) {
 @Composable
 fun ReaderScreen(bookUrl: String, onBack: () -> Unit) {
     val vm: ReaderViewModel = viewModel()
-    LaunchedEffect(bookUrl) { vm.load(bookUrl, 0) }
+    LaunchedEffect(bookUrl) { vm.load(bookUrl, -1) }
     val state by vm.state.collectAsState()
     var theme by remember { mutableStateOf(ReaderTheme.PAPER) }
     var fontSize by remember { mutableStateOf(18f) }
@@ -91,7 +91,32 @@ fun ReaderScreen(bookUrl: String, onBack: () -> Unit) {
                 }
             } else {
                 Column(
-                    Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 20.dp)
+                    Modifier.fillMaxSize()
+                        .verticalScroll(scroll)
+                        .pointerInput(state.content) {
+                            detectTapGestures { offset ->
+                                val w = size.width
+                                when {
+                                    offset.x < w / 3f -> prevPage()
+                                    offset.x > w * 2 / 3f -> nextPage()
+                                    else -> showMenu = !showMenu
+                                }
+                            }
+                        }
+                        .pointerInput(state.content) {
+                            var accum = 0f
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    if (accum < -120f) nextPage()
+                                    else if (accum > 120f) prevPage()
+                                    accum = 0f
+                                }
+                            ) { change, amount ->
+                                change.consume()
+                                accum += amount
+                            }
+                        }
+                        .padding(horizontal = 20.dp)
                 ) {
                     Spacer(Modifier.height(16.dp))
                     Text(
@@ -114,33 +139,7 @@ fun ReaderScreen(bookUrl: String, onBack: () -> Unit) {
                     Spacer(Modifier.height(48.dp))
                 }
             }
-            // 手势层：点击分区翻页 + 水平滑页
-            Box(
-                Modifier.fillMaxSize()
-                    .pointerInput(state.content) {
-                        detectTapGestures { offset ->
-                            val w = size.width
-                            when {
-                                offset.x < w / 3f -> prevPage()
-                                offset.x > w * 2 / 3f -> nextPage()
-                                else -> showMenu = !showMenu
-                            }
-                        }
-                    }
-                    .pointerInput(state.content) {
-                        var accum = 0f
-                        detectHorizontalDragGestures(
-                            onDragEnd = {
-                                if (accum < -120f) nextPage()
-                                else if (accum > 120f) prevPage()
-                                accum = 0f
-                            }
-                        ) { change, amount ->
-                            change.consume()
-                            accum += amount
-                        }
-                    }
-            )
+
         }
         if (showMenu) {
             Column(Modifier.fillMaxWidth().background(theme.bg).padding(vertical = 8.dp)) {

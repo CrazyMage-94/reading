@@ -39,7 +39,8 @@ class ReaderViewModel(app: Application) : AndroidViewModel(app) {
                     chapters = repo.getChapters(src, bookUrl)
                     repo.saveChapters(chapters)
                 }
-                val idx = if (startIndex in chapters.indices) startIndex else book.lastReadIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
+                val idx = if (startIndex >= 0 && startIndex in chapters.indices) startIndex
+                    else book.lastReadIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
                 state.value = ReaderState(book = book, chapters = chapters, currentIndex = idx)
                 loadContent(chapters.getOrNull(idx)?.url ?: "")
                 refreshChaptersInBackground(bookUrl)
