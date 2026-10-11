@@ -16,7 +16,7 @@ object DefaultSources {
             ruleBookIntro = "meta[name=description]@content",
             ruleBookCover = "img[itemprop=image]@src",
             ruleChapterList = "ul.list3>li",
-            ruleChapterName = "a>span@text",
+            ruleChapterName = "a@text",
             ruleChapterUrl = "a@href",
             ruleContent = "#content"
         ),

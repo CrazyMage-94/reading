@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
 
 data class SearchBook(
     var name: String = "", var author: String = "", var cover: String = "",
-    var bookUrl: String = "", var intro: String = ""
+    var bookUrl: String = "", var intro: String = "", var sourceId: String = ""
 )
 
 class SourceParser {
@@ -73,7 +73,8 @@ class SourceParser {
                     name = name,
                     author = resolveText(el, source.ruleSearchAuthor),
                     cover = absolutize(resolveAttr(el, source.ruleSearchCover, el.baseUri()), el.baseUri()),
-                    bookUrl = absolutize(resolveAttr(el, source.ruleSearchBookUrl, el.baseUri()), el.baseUri())
+                    bookUrl = absolutize(resolveAttr(el, source.ruleSearchBookUrl, el.baseUri()), el.baseUri()),
+                    sourceId = source.id
                 )
             }
             Log.i(TAG, "[${source.name}] search '${keyword}' -> ${results.size} results")
@@ -103,27 +104,64 @@ class SourceParser {
         val html = fetchHtml(bookUrl, source.charset)
         if (html.isBlank()) return@withContext emptyList()
         var doc = Jsoup.parse(html, bookUrl)
+        var pageUrl = bookUrl
         var elements = doc.select(source.ruleChapterList)
         // 目录在独立页面（如 list.html）：自动跟随
         if (elements.isEmpty()) {
             val listLink = Regex("href=\"([^\"]*list\\.html)\"").find(html)?.groupValues?.get(1)
             if (listLink != null) {
-                val listUrl = absolutize(listLink, bookUrl)
-                Log.i(TAG, "[${source.name}] chapters on separate page: $listUrl")
-                val listHtml = fetchHtml(listUrl, source.charset)
-                doc = Jsoup.parse(listHtml, listUrl)
+                pageUrl = absolutize(listLink, bookUrl)
+                Log.i(TAG, "[${source.name}] chapters on separate page: $pageUrl")
+                val listHtml = fetchHtml(pageUrl, source.charset)
+                doc = Jsoup.parse(listHtml, pageUrl)
                 elements = doc.select(source.ruleChapterList)
             }
         }
-        Log.i(TAG, "[${source.name}] chapters: ${elements.size} found")
+        var chapters = buildChapters(source, bookUrl, elements, stripAmp = false)
+        // 缺口检测：URL 编号跨度远大于条目数 → 目录被缩略，尝试 AMP 完整目录
+        if (hasChapterGap(chapters)) {
+            val ampUrl = findAmpListUrl(doc, pageUrl)
+            if (ampUrl != null) {
+                Log.i(TAG, "[${source.name}] gap detected, trying AMP full list: $ampUrl")
+                val ampHtml = fetchHtml(ampUrl, source.charset)
+                if (ampHtml.isNotBlank()) {
+                    val ampDoc = Jsoup.parse(ampHtml, ampUrl)
+                    val ampChapters = buildChapters(source, bookUrl, ampDoc.select(source.ruleChapterList), stripAmp = true)
+                    if (ampChapters.size > chapters.size) {
+                        Log.i(TAG, "[${source.name}] AMP full list: ${ampChapters.size} chapters")
+                        chapters = ampChapters
+                    }
+                }
+            }
+        }
+        Log.i(TAG, "[${source.name}] chapters total: ${chapters.size}")
+        chapters
+    }
+
+    private fun buildChapters(source: BookSource, bookUrl: String, elements: org.jsoup.select.Elements, stripAmp: Boolean): List<Chapter> =
         elements.mapIndexedNotNull { i, el ->
             val title = resolveText(el, source.ruleChapterName)
-            val href = absolutize(resolveAttr(el, source.ruleChapterUrl, el.baseUri()), el.baseUri())
+            var href = absolutize(resolveAttr(el, source.ruleChapterUrl, el.baseUri()), el.baseUri())
+            if (stripAmp) href = href.replace("/amp/", "/")
             if (title.isBlank() || href.isBlank()) null
             else Chapter(bookUrl, i, title = title, url = href)
         }
+
+    private fun hasChapterGap(chapters: List<Chapter>): Boolean {
+        if (chapters.size < 10) return false
+        val ids = chapters.mapNotNull { Regex("(\\d+)\\.html").find(it.url)?.groupValues?.get(1)?.toLongOrNull() }.sorted()
+        if (ids.size < 10) return false
+        val span = ids.last() - ids.first() + 1
+        return span > ids.size * 2 + 20
     }
 
+    private fun findAmpListUrl(doc: org.jsoup.nodes.Document, pageUrl: String): String? {
+        doc.selectFirst("link[rel=amphtml]")?.attr("href")?.let { return absolutize(it, pageUrl) }
+        return try {
+            val u = java.net.URI(pageUrl)
+            "${u.scheme}://${u.host}/amp${u.path}"
+        } catch (e: Exception) { null }
+    }
     suspend fun getContent(source: BookSource, chapterUrl: String): String = withContext(Dispatchers.IO) {
         val html = fetchHtml(chapterUrl, source.charset)
         if (html.isBlank()) return@withContext ""

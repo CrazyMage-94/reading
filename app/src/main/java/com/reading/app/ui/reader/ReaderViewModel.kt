@@ -1,6 +1,7 @@
 package com.reading.app.ui.reader
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.reading.app.data.model.Book
@@ -41,9 +42,25 @@ class ReaderViewModel(app: Application) : AndroidViewModel(app) {
                 val idx = if (startIndex in chapters.indices) startIndex else book.lastReadIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
                 state.value = ReaderState(book = book, chapters = chapters, currentIndex = idx)
                 loadContent(chapters.getOrNull(idx)?.url ?: "")
+                refreshChaptersInBackground(bookUrl)
             } catch (e: Exception) {
                 state.value = state.value.copy(loading = false, error = e.message)
             }
+        }
+    }
+
+    private fun refreshChaptersInBackground(bookUrl: String) {
+        val src = source ?: return
+        viewModelScope.launch {
+            try {
+                val fresh = repo.getChapters(src, bookUrl)
+                val cached = state.value.chapters
+                if (fresh.size > cached.size) {
+                    repo.saveChapters(fresh)
+                    state.value = state.value.copy(chapters = fresh)
+                    Log.i("ReaderVM", "chapters refreshed: ${cached.size} -> ${fresh.size}")
+                }
+            } catch (_: Exception) { }
         }
     }
 

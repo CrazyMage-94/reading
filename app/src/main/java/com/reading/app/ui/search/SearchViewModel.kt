@@ -48,7 +48,7 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
                 repo.addToShelf(
                     Book(
                         bookUrl = item.bookUrl, name = item.name, author = item.author,
-                        coverUrl = item.cover, intro = item.intro
+                        coverUrl = item.cover, intro = item.intro, sourceId = item.sourceId
                     )
                 )
                 addedUrls.value = addedUrls.value + item.bookUrl
