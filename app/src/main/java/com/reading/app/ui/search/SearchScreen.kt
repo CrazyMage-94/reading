@@ -57,7 +57,7 @@ fun SearchScreen(onBack: () -> Unit) {
                 placeholder = { Text("输入书名或作者") },
                 singleLine = true,
                 trailingIcon = {
-                    if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    if (loading) com.reading.app.ui.common.LoadingIndicator(Modifier.size(24.dp))
                     else IconButton(onClick = vm::search) { Icon(Icons.Default.Search, "搜索") }
                 }
             )

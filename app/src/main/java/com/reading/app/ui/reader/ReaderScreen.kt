@@ -57,7 +57,7 @@ fun ReaderScreen(bookUrl: String, onBack: () -> Unit) {
         // 正文
         Box(Modifier.weight(1f)) {
             if (state.loading) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { com.reading.app.ui.common.LoadingIndicator() }
             } else if (state.error != null) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
