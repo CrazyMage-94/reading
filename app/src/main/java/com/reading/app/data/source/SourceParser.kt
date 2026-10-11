@@ -133,13 +133,20 @@ class SourceParser {
             return@withContext ""
         }
         contentEl.select("script,style,ins,iframe,.txtnav,.adsbygoogle,[id*=ad],[class*=ad],[class*=banner]").remove()
-        contentEl.wholeText()
-            .replace(Regex("\\u00a0|&nbsp;"), " ")
-            .replace(Regex("[ \\t\\x0B\\f\\r]+"), " ")
-            .replace(Regex("\\n{3,}"), "\n\n")
-            .split("\n")
-            .map { it.trim() }
-            .filter { it.isNotBlank() && !it.contains("本章未完") && !it.contains("点击下一页") && !it.contains("最新章节") }
+        // 按段落提取：优先 <p> 标签，否则 <br> 转换行（wholeText 会丢失块级换行，不能用）
+        val pEls = contentEl.select("p")
+        val rawLines: List<String> = if (pEls.size > 1) {
+            pEls.map { it.text() }
+        } else {
+            val brHtml = contentEl.html().replace(Regex("(?i)<br\\s*/?\\s*>"), "\n")
+            Jsoup.parse(brHtml).wholeText().split("\n")
+        }
+        rawLines
+            .map { it.replace(Regex("[ \\t\\x0B\\f\\r]+"), " ").trim() }
+            .filter {
+                it.isNotBlank() && !it.contains("本章未完") && !it.contains("点击下一页") &&
+                    !it.contains("最新章节") && !it.contains("章节内容开始")
+            }
             .joinToString("\n")
     }
 
